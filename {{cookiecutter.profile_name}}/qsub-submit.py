@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-sync-submit.py
+qsub-submit.py
 
-Script to wrap bsub/qsub sync command for Snakemake. Uses the following job or
+Script to wrap qsub command (no sync) for Snakemake. Uses the following job or
 cluster parameters:
 
 + `threads`
@@ -76,32 +76,19 @@ err_log_path = str(Path(log_dir).joinpath(err_log))
 queue = cluster.get("queue", "{{cookiecutter.default_queue}}")
 
 # set name/log information
-jobinfo_cmd = {
-    "bsub": (
-        "-o {out_log_path:q} -e {err_log_path:q}"
-        " -J {jobname:q}"
-    ),
-    "qsub": (
-        "-o {out_log_path:q} -e {err_log_path:q}"
-        " -N {jobname:q}"
-    )
-}["{{cookiecutter.cluster}}"]
-
+jobinfo_cmd = (
+    "-o {out_log_path:q} -e {err_log_path:q}"
+    " -N {jobname:q}"
+)
 
 # set up resources part of command
-resources_cmd = {
-    "bsub": (
-        "-M {mem_mb} -n {threads}"
-        " -R 'span[hosts=1] rusage [mem={mem_mb}]'"
-    ),
-    "qsub": (
-        # shared memory processes, preferentially on consecutive cores
-        "-pe smp {threads} -binding linear:{threads}"
-        # memory limit and memory request
-        " -l h_vmem={mem_per_thread}M"
-        " -l m_mem_free={mem_per_thread}M"
-    )
-}["{{cookiecutter.cluster}}"]
+resources_cmd = (
+    # shared memory processes, preferentially on consecutive cores
+    "-pe smp {threads} -binding linear:{threads}"
+    # memory limit and memory request
+    " -l h_vmem={mem_per_thread}M"
+    " -l m_mem_free={mem_per_thread}M"
+)
 
 # get queue part of command (if empty, don't put in anything)
 queue_cmd = "-q {queue}" if queue else ""
@@ -109,16 +96,13 @@ queue_cmd = "-q {queue}" if queue else ""
 # get cluster commands to pass through, if any
 cluster_cmd = " ".join(sys.argv[1:-1])
 
-# get command to do cluster sync
-sync_cmd = {
-    "bsub": "bsub -K",
-    "qsub": "qsub -terse -cwd -sync y"
-}["{{cookiecutter.cluster}}"]
+# get command to do cluster command (no sync)
+submit_cmd = "qsub -terse -cwd"
 
 # run commands
 shell(
-    # sync command (bsub/qsub)
-    sync_cmd
+    # qsub submit command
+    submit_cmd
     # specify required threads/resources
     + " " + resources_cmd
     # specify job name, output/error logfiles

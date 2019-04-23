@@ -1,33 +1,32 @@
-# Snakemake sync bsub/qsub profile
+# Snakemake qsub profile
 
-Snakemake cookiecutter profile for running jobs on bsub or qsub cluster using
+Snakemake cookiecutter profile for running jobs on qsub cluster without
 synchronization.
-Inspired by [broadinstitute/snakemake-broad-uger][broad-example].
+Derived from [jaicher/snakemake-sync-bq-sub][cluster-sync].
 Deploy using [cookiecutter][cookiecutter-repo] (easily installed using conda or
 pip) by running:
 
-   [broad-example]: https://github.com/broadinstitute/snakemake-broad-uger
+   [cluster-sync]: https://github.com/jaicher/snakemake-sync-bq-sub
    [cookiecutter-repo]: https://github.com/audreyr/cookiecutter
 
 ```
 # make sure configuration directory snakemake looks for profiles in exists
 mkdir -p ~/.config/snakemake
 # use cookiecutter to create a profile in the config directory
-cookiecutter --output-dir ~/.config/snakemake gh:jaicher/snakemake-sync-bq-sub
+cookiecutter --output-dir ~/.config/snakemake .
 ```
 
-This command will prompt for parameters to set. In particular, it will ask a
-choice between `bsub` or `qsub`. It will ask to change default snakemake
-parameters, log directories. It will ask for a default queue for job
+This command will prompt for parameters to set.  It will ask to change default
+snakemake parameters, log directories. It will ask for a default queue for job
 submissions (if left empty, by default it will not add a flag for the queue).
 It will finally ask what the desired profile name is.
 
 Once complete, this will allow you to run Snakemake with the cluster
 configuration using the `--profile` flag. For example, if the profile name
-was `cluster-sync`, then you can run:
+was `cluster-qsub`, then you can run:
 
 ```
-snakemake --profile cluster-sync {...}
+snakemake --profile cluster-qsub {...}
 ```
 
 ## Specification of resources/cluster settings

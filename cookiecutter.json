@@ -1,5 +1,4 @@
 {
-    "cluster": ["bsub", "qsub"],
     "latency_wait": 60,
     "use_conda": true,
     "keep_going": true,
@@ -8,5 +7,5 @@
     "default_mem_mb": 2048,
     "default_cluster_logdir": "cluster_logs",
     "default_queue": "",
-    "profile_name": "cluster-sync"
+    "profile_name": "cluster-qsub"
 }
