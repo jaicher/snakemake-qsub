@@ -13,7 +13,7 @@ pip) by running:
 # make sure configuration directory snakemake looks for profiles in exists
 mkdir -p ~/.config/snakemake
 # use cookiecutter to create a profile in the config directory
-cookiecutter --output-dir ~/.config/snakemake .
+cookiecutter --output-dir ~/.config/snakemake gh:jaicher/snakemake-qsub
 ```
 
 This command will prompt for parameters to set.  It will ask to change default
