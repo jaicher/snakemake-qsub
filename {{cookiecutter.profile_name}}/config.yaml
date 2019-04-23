@@ -4,4 +4,5 @@ keep-going: {{cookiecutter.keep_going}}
 restart-times: {{cookiecutter.restart_times}}
 jobs: {{cookiecutter.jobs}}
 cluster: "qsub-submit.py"
+cluster-status: "qsub-status.py"
 local-cores: 1
