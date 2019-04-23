@@ -100,7 +100,7 @@ cluster_cmd = " ".join(sys.argv[1:-1])
 submit_cmd = "qsub -terse -cwd"
 
 # run commands
-shell(
+shell_stdout = shell(
     # qsub submit command
     submit_cmd
     # specify required threads/resources
@@ -112,5 +112,9 @@ shell(
     # put in pass-through commands
     + " " + cluster_cmd
     # finally, the jobscript
-    + " {jobscript}"
+    + " {jobscript}",
+    read=True  # get byte string from stdout
 )
+
+# obtain job id from this, and print
+print(shell_stdout.decode().strip())
