@@ -3,5 +3,5 @@ use-conda: {{cookiecutter.use_conda}}
 keep-going: {{cookiecutter.keep_going}}
 restart-times: {{cookiecutter.restart_times}}
 jobs: {{cookiecutter.jobs}}
-cluster-sync: "qsub-submit.py"
+cluster: "qsub-submit.py"
 local-cores: 1
