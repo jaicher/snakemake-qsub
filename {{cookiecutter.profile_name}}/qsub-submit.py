@@ -60,6 +60,11 @@ mem_mb = resources.get(
     )
 )
 mem_per_thread = round(mem_mb / threads, 2)  # per thread...
+# get the expected runtime in minutes
+runtime = cluster.get(
+    "runtime",
+    None
+)
 
 # determine names to pass through for job name, logfiles
 log_dir = cluster.get("logdir", "{{cookiecutter.default_cluster_logdir}}")
@@ -89,6 +94,15 @@ resources_cmd = (
     " -l h_vmem={mem_per_thread}M"
     " -l m_mem_free={mem_per_thread}M"
 )
+# if runtime specified, use it
+if runtime:
+    # make sure it is integer
+    runtime = int(runtime)
+    # runtime needs to be specified in HH:MM:SS, but is currently in minutes
+    runtime_hr = runtime // 60
+    runtime_min = runtime % 60
+    # add to resources command
+    resources_cmd += " -l h_rt={runtime_hr}:{runtime_min}:00"
 # if resources are large, perform reservation
 if (
         threads >= int({{cookiecutter.reserve_min_threads}})

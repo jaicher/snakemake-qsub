@@ -43,6 +43,8 @@ A cluster configuration can be provided to specify additional information:
 + `mem_mb`: the memory that will be requested for the rule in megabytes.
   Overriden by `resources.mem_mb`. If neither provided, use a default value (in
   cookiecutter configuration).
++ `runtime`: the maximum amount of time the job will be allowed to run for in
+  minutes
 + `queue`: override the default queue for this job.
 + `logdir`: override the default cluster log directory for this job.
 + `output`: override the default name of stdout logfile
