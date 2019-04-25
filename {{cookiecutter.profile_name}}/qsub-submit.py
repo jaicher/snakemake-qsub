@@ -89,6 +89,13 @@ resources_cmd = (
     " -l h_vmem={mem_per_thread}M"
     " -l m_mem_free={mem_per_thread}M"
 )
+# if resources are large, perform reservation
+if (
+        threads >= int({{cookiecutter.reserve_min_threads}})
+        or
+        mem_mb >= int({{cookiecutter.reserve_min_mem_mb}})
+):
+    resources_cmd += " -R yes"
 
 # get queue part of command (if empty, don't put in anything)
 queue_cmd = "-q {queue}" if queue else ""

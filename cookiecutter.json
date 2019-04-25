@@ -5,6 +5,8 @@
     "restart_times": 1,
     "jobs": 100,
     "default_mem_mb": 2048,
+    "reserve_min_threads": 4,
+    "reserve_min_mem_mb": 8096,
     "default_cluster_logdir": "cluster_logs",
     "default_queue": "",
     "profile_name": "cluster-qsub"
