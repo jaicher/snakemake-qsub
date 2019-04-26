@@ -32,8 +32,29 @@ SOFTWARE.
 
 import sys
 import subprocess
+import re
 
 
+# define function to allow us to extract time from string
+def process_time(time_str):
+    """ Extracts time in seconds from string formatted as 'HH:MM:SS'
+
+    Parameters
+    ----------
+    time_str: String
+        String encoding time elapsed in format 'HH:MM:SS'
+
+    Returns
+    -------
+    int
+        Time elapsed in seconds
+    """
+    hours, minutes, seconds = time_str.split(":", 2)
+    total_time = int(seconds) + 60 * (int(minutes) + 60 * int(hours))
+    return total_time
+
+
+# let's get started by extracting the job id
 jobid = sys.argv[1]
 
 try:
@@ -43,9 +64,32 @@ try:
     if proc.returncode == 0:
         state = ""
         for line in proc.stdout.split('\n'):
+            # let's determine job state
             if line.startswith("job_state"):
                 parts = line.split(":")
                 state = parts[1].strip()
+            # let's determine if our cpu usage is hung (cpu <<< walltime)
+            if line.startswith("usage"):
+                # extract cpu and wallclock time from usage line
+                match = re.search(
+                    "wallclock=([0-9]+:[0-9]+:[0-9]+),"
+                    " cpu=([0-9]+:[0-9]+:[0-9]+)", line
+                )
+                # if we are able to extract the time...
+                if match:
+                    wallclock = process_time(match.group(1))
+                    cpu = process_time(match.group(2))
+                    # only do anything about it if we have been waiting a while
+                    if wallclock * 60 > int({{cookiecutter.cpu_hung_min_time}}):
+                        # only if the ratio of usage is below a certain value
+                        usage_ratio = cpu / wallclock
+                        if usage_ratio < float({{cookiecutter.cpu_hung_max_ratio}}):
+                            # kill the job (wait for next check to show failed)
+                            proc = subprocess.run(
+                                ["qdel", jobid], encoding="utf-8",
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                            )
+
 
         if "E" in state:
             print("failed")
