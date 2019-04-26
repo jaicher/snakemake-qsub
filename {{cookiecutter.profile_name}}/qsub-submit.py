@@ -88,8 +88,8 @@ jobinfo_cmd = (
 
 # set up resources part of command
 resources_cmd = (
-    # shared memory processes, preferentially on consecutive cores
-    "-pe smp {threads} -binding linear:{threads}"
+    # shared memory processes with specific number of threads
+    "-pe smp {threads}"
     # memory limit and memory request
     " -l h_vmem={mem_per_thread}M"
     " -l m_mem_free={mem_per_thread}M"
