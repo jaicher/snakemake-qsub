@@ -33,6 +33,8 @@ SOFTWARE.
 import sys
 import subprocess
 import re
+from pathlib import Path
+import time
 
 
 # define function to allow us to extract time from string
@@ -56,6 +58,10 @@ def process_time(time_str):
 
 # let's get started by extracting the job id
 jobid = sys.argv[1]
+# let's consider a path that will represent this job id to keep track of state
+p = Path("cluster_missing/{0}.stat".format(jobid))
+# let's consider our current status. By default, it is running
+status = "running"
 
 try:
     proc = subprocess.run(["qstat", "-j", jobid], encoding='utf-8',
@@ -92,9 +98,7 @@ try:
 
 
         if "E" in state:
-            print("failed")
-        else:
-            print("running")
+            status = "failed"
     else:
         proc = subprocess.run(["qacct", "-j", jobid], encoding='utf-8',
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -111,13 +115,31 @@ try:
 
             if (job_props.get("failed", "1") == "0" and
                     job_props.get("exit_status", "1") == "0"):
-                print("success")
+                status = "success"
             else:
-                print("failed")
+                status = "failed"
         else:
-            # If not found with qstat or qacct, it's probably in some sort of
-            # transistion phase (from running to finished), so let's not
-            # confuse snakemake to think it may have failed.
-            print("running")
+            # not found by qstat or qacct. Could be transitioning from running
+            # to finished, but could also be missing from queue. We set a
+            # limit on the number of minutes for such a transition.
+            # use the path p now...
+            if not p.exists():
+                # first time here, so mark the time
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.touch()  # mark the time
+            else:
+                # get difference in time
+                time_elapsed = (time.time() - p.stat().st_mtime) / 60
+                if time_elapsed > float({{cookiecutter.missing_job_wait}}):
+                    # if more than this many minutes considered failure
+                    status = "failed"
 except KeyboardInterrupt:
-    pass
+    sys.exit(0)
+# otherwise, print final status and deal with path if necessary
+print(status)
+if status != "running":
+    # final status, so delete p if it exists
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        pass  # the file doesn't exist, so no worries
