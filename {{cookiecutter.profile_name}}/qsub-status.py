@@ -86,15 +86,17 @@ try:
                     wallclock = process_time(match.group(1))
                     cpu = process_time(match.group(2))
                     # only do anything about it if we have been waiting a while
-                    if wallclock * 60 > int({{cookiecutter.cpu_hung_min_time}}):
+                    if wallclock / 60 > int({{cookiecutter.cpu_hung_min_time}}):
                         # only if the ratio of usage is below a certain value
                         usage_ratio = cpu / wallclock
                         if usage_ratio < float({{cookiecutter.cpu_hung_max_ratio}}):
-                            # kill the job (wait for next check to show failed)
+                            # kill the job
                             proc = subprocess.run(
                                 ["qdel", jobid], encoding="utf-8",
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
                             )
+                            # mark as failed
+                            status = "failed"
 
 
         if "E" in state:
