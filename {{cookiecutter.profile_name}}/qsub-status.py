@@ -37,111 +37,295 @@ from pathlib import Path
 import time
 
 
+# get directory for checking for jobs before resorting to qacct
+CLUSTER_DIR = Path("{{cookiecutter.cluster_dir}}")
+
+
+# define custom exception for status checks
+class StatusCheckException(Exception):
+    pass  # custom exception for when one way of checking status fails
+
+
 # define function to allow us to extract time from string
 def process_time(time_str):
-    """ Extracts time in seconds from string formatted as 'HH:MM:SS'
+    """ Extracts time in seconds from string formatted as '(DD:)?HH:MM:SS'
 
     Parameters
     ----------
     time_str: String
-        String encoding time elapsed in format 'HH:MM:SS'
+        String encoding time elapsed in format '(DD:)?HH:MM:SS'
 
     Returns
     -------
     int
         Time elapsed in seconds
     """
-    hours, minutes, seconds = time_str.split(":", 2)
-    total_time = int(seconds) + 60 * (int(minutes) + 60 * int(hours))
+    time_split = [int(x) for x in time_str.split(":")]
+    if len(time_split) == 3:
+        hours, minutes, seconds = time_split
+    else:
+        # assume that the length is 4 (days)
+        time_split = time_split[-4:]
+        days, hours, minutes, seconds = time_split
+        hours = 24 * days  # compute total number of hours, ignoring day
+    total_time = seconds + 60 * (minutes + 60 * hours)
     return total_time
 
 
-# let's get started by extracting the job id
-jobid = sys.argv[1]
-# let's consider a path that will represent this job id to keep track of state
-p = Path("cluster_missing/{0}.stat".format(jobid))
-# let's consider our current status. By default, it is running
-status = "running"
-
-try:
-    proc = subprocess.run(["qstat", "-j", jobid], encoding='utf-8',
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    if proc.returncode == 0:
-        state = ""
-        for line in proc.stdout.split('\n'):
-            # let's determine job state
-            if line.startswith("job_state"):
-                parts = line.split(":")
-                state = parts[1].strip()
-            # let's determine if our cpu usage is hung (cpu <<< walltime)
-            if line.startswith("usage"):
-                # extract cpu and wallclock time from usage line
-                match = re.search(
-                    "wallclock=([0-9]+:[0-9]+:[0-9]+),"
-                    " cpu=([0-9]+:[0-9]+:[0-9]+)", line
-                )
-                # if we are able to extract the time...
-                if match:
-                    wallclock = process_time(match.group(1))
-                    cpu = process_time(match.group(2))
-                    # only do anything about it if we have been waiting a while
-                    if wallclock / 60 > int({{cookiecutter.cpu_hung_min_time}}):
-                        # only if the ratio of usage is below a certain value
-                        usage_ratio = cpu / wallclock
-                        if usage_ratio < float({{cookiecutter.cpu_hung_max_ratio}}):
-                            # kill the job
-                            proc = subprocess.run(
-                                ["qdel", jobid], encoding="utf-8",
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                            )
-                            # mark as failed
-                            status = "failed"
+def qstat_error(qstat_stdout):
+    """ Returns true if error state from qstat stdout, false otherwise
+    """
+    state = ""
+    for line in qstat_stdout.split("\n"):
+        if line.startswith("job_state"):
+            # get job state
+            _, state = line.split(":")
+            state = state.strip()
+            break  # exit for loop
+    return "E" in state
 
 
-        if "E" in state:
-            status = "failed"
-    else:
-        proc = subprocess.run(["qacct", "-j", jobid], encoding='utf-8',
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def handle_hung_qstat(
+        jobid, qstat_stdout,
+        cpu_hung_min_time=int({{cookiecutter.cpu_hung_min_time}}),
+        cpu_hung_max_ratio=int({{cookiecutter.cpu_hung_max_ratio}})
+):
+    """ If the qstat stdout cpu usage suggests hung job, kill it
 
-        if proc.returncode == 0:
-            job_props = {}
-            for line in proc.stdout.split('\n'):
-                parts = line.split(maxsplit=1)
-                if len(parts) <= 1:
-                    continue
+    Parameters
+    ----------
+    jobid: str
+    qstat_stdout: str
+    cpu_hung_min_time: int
+        Only kill job if the walltime has passed this many minutes
+    cpu_hung_max_ratio: int
+        Only kill job if the cpu/walltime is below this ratio
+    """
+    for line in qstat_stdout.split("\n"):
+        if line.startswith("usage"):
+            # extract cpu and wallclock time from usage line
+            # TODO: update for jobs that go over 1 day
+            match = re.search(
+                "wallclock=([0-9]+:[0-9]+:[0-9]+),"
+                " cpu=([0-9]+:[0-9]+:[0-9]+)", line
+            )
+            if match:
+                wallclock = process_time(match.group(1))
+                cpu = process_time(match.group(2))
+                if (
+                        (wallclock / 60) > cpu_hung_min_time
+                        and (cpu / wallclock) < cpu_hung_max_ratio
+                ):
+                    # kill the job
+                    subprocess.run(
+                        ["qdel", jobid], encoding="utf-8",
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                break  # break out of for loop if we were able to extract time
+    return  # done
 
-                key, value = parts
-                job_props[key.strip()] = value.strip()
 
-            if (job_props.get("failed", "1") == "0" and
-                    job_props.get("exit_status", "1") == "0"):
-                status = "success"
-            else:
-                status = "failed"
-        else:
-            # not found by qstat or qacct. Could be transitioning from running
-            # to finished, but could also be missing from queue. We set a
-            # limit on the number of minutes for such a transition.
-            # use the path p now...
-            if not p.exists():
-                # first time here, so mark the time
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.touch()  # mark the time
-            else:
-                # get difference in time
-                time_elapsed = (time.time() - p.stat().st_mtime) / 60
-                if time_elapsed > float({{cookiecutter.missing_job_wait}}):
-                    # if more than this many minutes considered failure
-                    status = "failed"
-except KeyboardInterrupt:
-    sys.exit(0)
-# otherwise, print final status and deal with path if necessary
-print(status)
-if status != "running":
-    # final status, so delete p if it exists
+def qstat_status(jobid):
+    """ qstat to obtain job status, raises StatusCheckException if qstat fails
+
+    Parameters
+    ----------
+    jobid: str
+        The job being evaluated
+
+    Returns
+    -------
+    str: status string (running, failed, success) (success not possible)
+
+    Raises
+    ------
+    StatusCheckException if jobid not found by qstat
+    """
+    # run qstat
+    proc = subprocess.run(
+        ["qstat", "-j", jobid], encoding="utf-8",
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if proc.returncode != 0:
+        # qstat failed...
+        raise StatusCheckException(f"qstat failed on job {jobid}")
+    # otherwise
+    handle_hung_qstat(jobid, proc.stdout)  # kill job if CPU usage too low
+    status = "failed" if qstat_error(proc.stdout) else "running"
+    return status
+
+
+def cluster_dir_status(jobid):
+    """ Checks `CLUSTER_DIR` for status
+
+    Parameters
+    ----------
+    jobid: str
+        The job being evaluated
+
+    Returns
+    -------
+    str: status string (running, failed, success) (no running here)
+
+    Raises
+    ------
+    StatusCheckException if jobid not found by this method
+    """
+    # get the potential exit file path
+    exit_file_path = CLUSTER_DIR.joinpath(f"{jobid}.exit")
+    # try to open the job exit file
     try:
-        p.unlink()
+        exit_file = exit_file_path.open("r")
     except FileNotFoundError:
-        pass  # the file doesn't exist, so no worries
+        raise StatusCheckException(f"cluster_dir_status failed on job {jobid}")
+    # with opened file, parse exit status -- last line
+    exit_status = exit_file.readlines()[-1].strip()
+    # status is success or failed here
+    status = "success" if exit_status == "0" else "failed"
+    # delete exit file
+    try:
+        exit_file_path.unlink()
+    except FileNotFoundError:
+        pass  # okay that it has already been deleted
+    return status
+
+
+def qacct_status(jobid):
+    """ Checks qacct for status
+
+    Parameters
+    ----------
+    jobid: str
+        The job being evaluated
+
+    Returns
+    -------
+    str: status string (running, failed, success) (no running here)
+
+    Raises
+    ------
+    StatusCheckException if jobid not found by this method
+    """
+    proc = subprocess.run(
+        ["qacct", "-j", jobid], encoding="utf-8",
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if proc.returncode != 0:
+        # qacct failed...
+        raise StatusCheckException(f"qacct failed on job {jobid}")
+    # otherwise
+    job_props = {}  # keep track of job properties
+    # update job properties from stdout from qacct
+    for line in proc.stdout.split('\n'):
+        parts = line.split(maxsplit=1)
+        if len(parts) <= 1:
+            continue
+
+        key, value = parts
+        job_props[key.strip()] = value.strip()
+
+    # check failed and exit status properties...
+    if (job_props.get("failed", "1") == "0" and
+            job_props.get("exit_status", "1") == "0"):
+        status = "success"
+    else:
+        status = "failed"
+    # return final status
+    return status
+
+
+def missing_status(
+        jobid, reset=False,
+        missing_job_wait=float({{cookiecutter.missing_job_wait}})
+):
+    """ Handles missing status
+
+    Parameters
+    ----------
+    jobid: str
+        The job being evaluated
+    reset: bool
+        If True, just delete the missing status file
+    missing_job_wait: float
+        The time elapsed in minutes before a missing job id will be evaluated
+        by qacct. If qacct has a status exception, job is considered failed
+
+    Returns
+    -------
+    str: status string (running, failed, success)
+    """
+    # what is the file we check?
+    p = CLUSTER_DIR.joinpath(f"{jobid}.missing")
+    # default status is running
+    status = "running"
+    # if not resetting, create file or check time elapsed...
+    if not reset:
+        if not p.exists():
+            # first time job missing -> create file
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()  # mark the time
+        else:
+            time_elapsed = (time.time() - p.stat().st_mtime) / 60
+            if time_elapsed > missing_job_wait:
+                try:
+                    status = qacct_status(jobid)
+                except StatusCheckException:
+                    # considered to be failed
+                    status = "failed"
+    # if job is failed or if we are resetting, delete the file
+    if reset or status == "failed":
+        # no longer need the missing file path
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass  # okay that file doesn't exist
+    return status
+
+
+def check_status(jobid):
+    """ Uses qstat/local files/qacct to check for the status of given jobid
+
+    Parameters
+    ----------
+    jobid: str
+        The job being evaluated
+
+    Returns
+    -------
+    str: status string (running, failed, success)
+    """
+    # check qstat
+    try:
+        # get qstat status
+        status = qstat_status(jobid)
+        # reset missing job file (qstat worked, so not missing)
+        missing_status(jobid, reset=True)
+        # return job status
+        return status
+    except StatusCheckException:
+        # qstat failed, keep going
+        pass
+    # try checking cluster dir exit file
+    try:
+        status = cluster_dir_status(jobid)
+        # reset missing job file (this check worked, so not missing)
+        missing_status(jobid, reset=True)
+        # return job status
+        return status
+    except StatusCheckException:
+        # this check also failed, keep going
+        pass
+    # treat as missing file for now -- if hits deadline, use qacct
+    status = missing_status(jobid, reset=False)  # keep waiting or failed?
+    # return final status
+    return status
+
+
+if __name__ == "__main__":
+    # let's get started by extracting the job id
+    jobid = sys.argv[1]
+
+    try:
+        print(check_status(jobid))
+    except KeyboardInterrupt:
+        sys.exit(0)

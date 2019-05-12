@@ -5,4 +5,5 @@ restart-times: {{cookiecutter.restart_times}}
 jobs: {{cookiecutter.jobs}}
 cluster: "qsub-submit.py"
 cluster-status: "qsub-status.py"
+jobscript: "qsub-jobscript.sh"
 local-cores: 1
