@@ -12,6 +12,6 @@
     "missing_job_wait": 1,
     "default_cluster_logdir": "cluster_logs",
     "default_queue": "",
-    "cluster_dir": "cluster_status",
+    "cluster_dir": ".cluster_status",
     "profile_name": "cluster-qsub"
 }
