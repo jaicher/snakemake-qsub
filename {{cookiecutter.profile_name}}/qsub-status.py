@@ -46,32 +46,6 @@ class StatusCheckException(Exception):
     pass  # custom exception for when one way of checking status fails
 
 
-# define function to allow us to extract time from string
-def process_time(time_str):
-    """ Extracts time in seconds from string formatted as '(DD:)?HH:MM:SS'
-
-    Parameters
-    ----------
-    time_str: String
-        String encoding time elapsed in format '(DD:)?HH:MM:SS'
-
-    Returns
-    -------
-    int
-        Time elapsed in seconds
-    """
-    time_split = [int(x) for x in time_str.split(":")]
-    if len(time_split) == 3:
-        hours, minutes, seconds = time_split
-    else:
-        # assume that the length is 4 (days)
-        time_split = time_split[-4:]
-        days, hours, minutes, seconds = time_split
-        hours = 24 * days  # compute total number of hours, ignoring day
-    total_time = seconds + 60 * (minutes + 60 * hours)
-    return total_time
-
-
 def qstat_error(qstat_stdout):
     """ Returns true if error state from qstat stdout, false otherwise
     """
@@ -85,12 +59,33 @@ def qstat_error(qstat_stdout):
     return "E" in state
 
 
+def extract_time(line, time_name):
+    """ Extracts time elapsed in seconds from usage line for given name
+    """
+    result = re.search(f"{time_name}=([^,]+)(,|$,\n)", line)
+    if not result:
+        return 0  # treat as zero seconds
+    time_str = re.search(f"{time_name}=([^,]+)(,|$,\n)", line).group(1)
+    elapsed_time = 0
+    multiplier = 1
+    multipliers = (1, 60, 60, 24)
+    for t, m in zip(reversed(time_str.split(":")), multipliers):
+        elapsed_time += multiplier * m * int(t)
+        multiplier *= m
+    return elapsed_time
+
+
 def handle_hung_qstat(
         jobid, qstat_stdout,
         cpu_hung_min_time=int({{cookiecutter.cpu_hung_min_time}}),
-        cpu_hung_max_ratio=int({{cookiecutter.cpu_hung_max_ratio}})
+        cpu_hung_max_ratio=int({{cookiecutter.cpu_hung_max_ratio}}),
+        debug=False
 ):
-    """ If the qstat stdout cpu usage suggests hung job, kill it
+    """ Kills job if hanging, returning True if it determined it was hung job
+
+    Kills job if hanging. Determines that job is hanging by evaluating the
+    cpu/walltime ratio -- if it below cpu_hung_max_ratio, considered hung.
+    Only evaluates the ratio if wallclock has passed cpu_hung_min_time.
 
     Parameters
     ----------
@@ -100,32 +95,37 @@ def handle_hung_qstat(
         Only kill job if the walltime has passed this many minutes
     cpu_hung_max_ratio: int
         Only kill job if the cpu/walltime is below this ratio
+    debug: Optional[bool]
+        If set, print additonal information to stderr
+
+    Returns
+    -------
+    bool: True if was hung job and killed
     """
     for line in qstat_stdout.split("\n"):
         if line.startswith("usage"):
-            # extract cpu and wallclock time from usage line
-            # TODO: update for jobs that go over 1 day
-            match = re.search(
-                "wallclock=([0-9]+:[0-9]+:[0-9]+),"
-                " cpu=([0-9]+:[0-9]+:[0-9]+)", line
-            )
-            if match:
-                wallclock = process_time(match.group(1))
-                cpu = process_time(match.group(2))
-                if (
-                        (wallclock / 60) > cpu_hung_min_time
-                        and (cpu / wallclock) < cpu_hung_max_ratio
-                ):
-                    # kill the job
-                    subprocess.run(
-                        ["qdel", jobid], encoding="utf-8",
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                    )
-                break  # break out of for loop if we were able to extract time
-    return  # done
+            # get the wallclock time
+            wallclock = extract_time(line, "wallclock")
+            if wallclock < cpu_hung_min_time * 60:
+                # not enough time has passed to declare job as hung
+                return False
+            # get cpu time
+            cpu = extract_time(line, "cpu")
+            if (cpu / wallclock) < cpu_hung_max_ratio:
+                # hung job, so kill it
+                if debug:
+                    print(f"usage ratio low, killing...", file=sys.stderr)
+                subprocess.run(
+                    ["qdel", jobid], encoding="utf-8",
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                return True  # we just killed the job
+            # otherwise, we aren't below the ratio
+            return False
+    return False  # we weren't able to get the ratio
 
 
-def qstat_status(jobid):
+def qstat_status(jobid, debug=False):
     """ qstat to obtain job status, raises StatusCheckException if qstat fails
 
     Parameters
@@ -136,6 +136,8 @@ def qstat_status(jobid):
     Returns
     -------
     str: status string (running, failed, success) (success not possible)
+    debug: Optional[bool]
+        If set, print additonal information to stderr
 
     Raises
     ------
@@ -149,9 +151,9 @@ def qstat_status(jobid):
     if proc.returncode != 0:
         # qstat failed...
         raise StatusCheckException(f"qstat failed on job {jobid}")
-    # otherwise
-    handle_hung_qstat(jobid, proc.stdout)  # kill job if CPU usage too low
-    status = "failed" if qstat_error(proc.stdout) else "running"
+    # otherwise kill job if CPU usage is too low
+    hung = handle_hung_qstat(jobid, proc.stdout, debug=debug)
+    status = "failed" if hung or qstat_error(proc.stdout) else "running"
     return status
 
 
@@ -282,13 +284,15 @@ def missing_status(
     return status
 
 
-def check_status(jobid):
+def check_status(jobid, debug=False):
     """ Uses qstat/local files/qacct to check for the status of given jobid
 
     Parameters
     ----------
     jobid: str
         The job being evaluated
+    debug: Optional[bool]
+        If set, print additonal information to stderr
 
     Returns
     -------
@@ -297,13 +301,14 @@ def check_status(jobid):
     # check qstat
     try:
         # get qstat status
-        status = qstat_status(jobid)
+        status = qstat_status(jobid, debug=debug)
         # reset missing job file (qstat worked, so not missing)
         missing_status(jobid, reset=True)
         # return job status
         return status
     except StatusCheckException:
-        # qstat failed, keep going
+        if debug:
+            print("qstat failed, keep going", file=sys.stderr)
         pass
     # try checking cluster dir exit file
     try:
@@ -314,6 +319,8 @@ def check_status(jobid):
         return status
     except StatusCheckException:
         # this check also failed, keep going
+        if debug:
+            print("exit file check failed, keep going", file=sys.stderr)
         pass
     # treat as missing file for now -- if hits deadline, use qacct
     status = missing_status(jobid, reset=False)  # keep waiting or failed?
