@@ -87,13 +87,13 @@ jobinfo_cmd = (
 )
 
 # set up resources part of command
-resources_cmd = (
-    # shared memory processes with specific number of threads
-    "-pe smp {threads}"
-    # memory limit and memory request
-    " -l h_vmem={mem_per_thread}M"
-    " -l m_mem_free={mem_per_thread}M"
-)
+# start by requesting threads in smp if threads > 1
+if threads > 1:
+    resources_cmd = "-pe smp {threads}"
+else:
+    resources_cmd = ""
+# add memory limit/request to resources
+resources_cmd += " -l h_vmem={mem_per_thread}M -l m_mem_free={mem_per_thread}M"
 # if runtime specified, use it
 if runtime:
     # make sure it is integer
