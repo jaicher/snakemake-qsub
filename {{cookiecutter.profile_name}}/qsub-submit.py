@@ -69,7 +69,7 @@ runtime = cluster.get(
 # determine names to pass through for job name, logfiles
 log_dir = cluster.get("logdir", "{{cookiecutter.default_cluster_logdir}}")
 # get the name of the job
-jobname = cluster.get("jobname", "{0}.{1}".format(rule, wildcards_str))
+jobname = cluster.get("jobname", "smk.{0}.{1}".format(rule, wildcards_str))
 # get the output file name
 out_log = cluster.get("output", "{}.out".format(jobname))
 err_log = cluster.get("error", "{}.err".format(jobname))
