@@ -9,6 +9,8 @@ cluster parameters:
 + `resources`
     - `mem_mb`: Expected memory requirements in megabytes. Overrides
       cluster.mem_mb
+    - `runtime`: Expecteted time requirements in minutes. Overrides
+      cluster.runtime
 + `cluster`
     - `mem_mb`: Memory that will be requested for the cluster for the job.
       Overriden by resources.mem_mb, if present.
@@ -61,10 +63,14 @@ mem_mb = resources.get(
 )
 mem_per_thread = round(mem_mb / threads, 2)  # per thread...
 # get the expected runtime in minutes
-runtime = cluster.get(
+runtime = resources.get(
+    "runtime",
+    None
+) or cluster.get(
     "runtime",
     None
 )
+
 
 # determine names to pass through for job name, logfiles
 log_dir = cluster.get("logdir", "{{cookiecutter.default_cluster_logdir}}")
